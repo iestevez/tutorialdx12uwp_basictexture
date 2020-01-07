@@ -7,6 +7,7 @@
 #include "StepTimer.h"
 #include "Mesh.h"
 #include "HelperFunctions.h"
+#include "DDSTextureLoader.h"
 
 
 // A basic game implementation that creates a D3D12 device and
@@ -53,6 +54,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource>              m_iBufferUpload; // Buffer para vértices
     Microsoft::WRL::ComPtr<ID3D12Resource>				m_vConstantBuffer; // Buffer de constantes
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>		m_cDescriptorHeap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>        m_sDescriptorHeap; // Descriptor HEap de Samplers
     unsigned int m_cDescriptorSize;
 
     struct vConstants {

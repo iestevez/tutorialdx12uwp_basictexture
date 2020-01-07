@@ -79,7 +79,7 @@ void Mesh::readFile(std::string const fileName) {
 		file >> vec[0] >> vec[1] >> vec[2];
 		vertices[cont++].normal = XMFLOAT3(vec[0], vec[1], vec[2]);
 	}
-	vsize = vertices.size()*sizeof(Vertex);
+	
 	unsigned int nindices;
 	file >> nindices;
 	for (auto i = 0; i < nindices; i++) {
@@ -88,6 +88,13 @@ void Mesh::readFile(std::string const fileName) {
 		indices.push_back(ind);
 	}
 	isize = indices.size()*sizeof(unsigned int);
+	for (auto i = 0; i < nvertices; i++) {
+		float u, v;
+		file >> u >> v;
+		XMFLOAT2 uv = XMFLOAT2(u, v);
+		vertices[i].uvcoords = uv;
+	}
+	vsize = vertices.size() * sizeof(Vertex);
 	file.close();
 
 }

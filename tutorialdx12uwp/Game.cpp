@@ -166,7 +166,7 @@ void Game::Clear()
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
 
     // Subtarea b: b Establecer un array de descriptor heaps
-    ID3D12DescriptorHeap* arrayHeaps[] = { m_cDescriptorHeap.Get() };
+    ID3D12DescriptorHeap* arrayHeaps[] = { m_cDescriptorHeap.Get(), m_sDescriptorHeap.Get()};
     m_commandList->SetDescriptorHeaps(_countof(arrayHeaps), arrayHeaps);
 
     // Subtarea c Establece el punto de comienzo del rango de descriptores.
@@ -175,10 +175,16 @@ void Game::Clear()
     //cHandle.Offset(0, m_cDescriptorSize);
 
     m_commandList->SetGraphicsRootDescriptorTable(0, // número de root parameter
-        cHandle //manejador a la posición del heap donde comenzaría el rango de descriptores
-    );
+        cHandle); //manejador a la posición del heap donde comenzaría el rango de descriptores
+    cHandle.Offset(1, m_cDescriptorSize);
+    m_commandList->SetGraphicsRootDescriptorTable(1, // para SRV
+        cHandle);
 
-    // Todo: Establecemos la vista para el buffer de indices
+    CD3DX12_GPU_DESCRIPTOR_HANDLE sHandle(m_sDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+    m_commandList->SetGraphicsRootDescriptorTable(2, // número de root parameter
+        sHandle); //manejador a la posición del heap donde comenzaría el rango de descriptores
+    
+     // Todo: Establecemos la vista para el buffer de indices
 
     D3D12_VERTEX_BUFFER_VIEW aVBufferView[1] = { m_vBufferView }; // Es necesario pasar un array de buffer views
 
@@ -737,6 +743,17 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
     D3D12_INDEX_BUFFER_VIEW aIBufferView[1] = { m_iBufferView }; // Es necesario pasar un array de buffer views
 
     m_commandList->IASetIndexBuffer(aIBufferView);
+
+    /* Tarea 4: Cargamos la textura de la malla*/
+
+    m_mesh.meshTexture = std::make_unique<Mesh::Texture>();
+    m_mesh.meshTexture->Name = "tutorialTex";
+    m_mesh.meshTexture->Filename = L"tutorialtextura.dds";
+    DX::ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(m_d3dDevice.Get(), m_commandList.Get(),
+        m_mesh.meshTexture->Filename.c_str(),
+        m_mesh.meshTexture->Resource,
+        m_mesh.meshTexture->UploadHeap));
+        
     /*------------------------- Fin Objetivo 1  ----------------------------------------------------------------------------*/
 
 
@@ -759,18 +776,27 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
         IID_PPV_ARGS(&m_vConstantBuffer)
     );
 
-    /* Tarea 2: crear un heap de descriptores*/
+    /* Tarea 2: crear un heap de descriptores CBV_SRV_UAV*/
 
     // El heap de descriptores para los buffers de constantes
     D3D12_DESCRIPTOR_HEAP_DESC cHeapDescriptor;
-    cHeapDescriptor.NumDescriptors = 1;
+    cHeapDescriptor.NumDescriptors = 2;
     cHeapDescriptor.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     cHeapDescriptor.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     cHeapDescriptor.NodeMask = 0;
 
     m_d3dDevice->CreateDescriptorHeap(&cHeapDescriptor, IID_PPV_ARGS(&m_cDescriptorHeap));
 
-    /* Tarea 3: crear un descriptor para el buffer*/
+    /* Tarea 3: Crear un heap de descriptores para samplers*/
+    D3D12_DESCRIPTOR_HEAP_DESC descHeapSampler = {};
+    descHeapSampler.NumDescriptors = 1;
+    descHeapSampler.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    descHeapSampler.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    DX::ThrowIfFailed(m_d3dDevice->CreateDescriptorHeap(&descHeapSampler, IID_PPV_ARGS(&m_sDescriptorHeap)));
+
+
+    /* Tarea 4: crear un descriptor para el buffer de constantes*/
     // Ahora el descriptor de la vista buffer de constantes
     D3D12_GPU_VIRTUAL_ADDRESS cAddress = m_vConstantBuffer->GetGPUVirtualAddress();
     D3D12_CONSTANT_BUFFER_VIEW_DESC cDescriptor;
@@ -779,6 +805,38 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
     m_cDescriptorSize = sizeof(cDescriptor);
     // Creamos el descriptor y lo colocamos al principio del heap de descriptores.
     m_d3dDevice->CreateConstantBufferView(&cDescriptor, m_cDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+    /* Tarea 5 Creamos un descriptor SRV para la textura*/
+    // Obtenemos un handle para el descriptor.
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
+        m_cDescriptorHeap->GetCPUDescriptorHandleForHeapStart()
+    );
+    hDescriptor.Offset(0, m_cDescriptorSize);
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = m_mesh.meshTexture->Resource->GetDesc().Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = m_mesh.meshTexture->Resource->GetDesc().MipLevels;
+    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
+    m_d3dDevice->CreateShaderResourceView(m_mesh.meshTexture->Resource.Get(), &srvDesc, hDescriptor);
+
+    /* Tarea 6 Creamoes un descriptor para el sampler*/
+    D3D12_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.MinLOD = 0;
+    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+    samplerDesc.MipLODBias = 0.0f;
+    samplerDesc.MaxAnisotropy = 1;
+    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    m_d3dDevice->CreateSampler(&samplerDesc, m_sDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+
+
+
 
 
     /*
@@ -789,17 +847,24 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
 
 /* Tarea 1: Crear un array de root parameters*/
 
-    CD3DX12_ROOT_PARAMETER rootParameters[1]; //Array de root parameters
+    CD3DX12_ROOT_PARAMETER rootParameters[3]; //Array de root parameters // CBT
     // Creamos un rango de tablas de descriptores
-    CD3DX12_DESCRIPTOR_RANGE cTable;
-    cTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
+    CD3DX12_DESCRIPTOR_RANGE descRange[3]; // CBT
+    descRange[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0); //1 CB to slot 0
+    descRange[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); //1 Texture to Slot 0
+    descRange[2].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); // 1 Sampler to Slot 0
+
 
     rootParameters[0].InitAsDescriptorTable(1, // Número de rangos 
-        &cTable); // Puntero a un array de rangos.
+        &descRange[0],D3D12_SHADER_VISIBILITY_ALL); 
+    rootParameters[1].InitAsDescriptorTable(1, // Número de rangos 
+        &descRange[1], D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParameters[2].InitAsDescriptorTable(1, // Número de rangos 
+        &descRange[2], D3D12_SHADER_VISIBILITY_PIXEL);
 
 /* Tarea 2: Creamos una descripción de la root signature y la serializamos */
-    // Descripción de la root signature
-    CD3DX12_ROOT_SIGNATURE_DESC rsDescription(1, rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+    // Descripción de la root signature //CBT
+    CD3DX12_ROOT_SIGNATURE_DESC rsDescription(3, rootParameters, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     //Debemos serializar la descripción root signature
     Microsoft::WRL::ComPtr<ID3DBlob> serializado = nullptr;
@@ -862,7 +927,8 @@ void Game::PSO()
 
         {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
         {"COLOR",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,12,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
-    {"NORMAL",0,DXGI_FORMAT_R32G32B32_FLOAT,0,28,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0}
+    {"NORMAL",0,DXGI_FORMAT_R32G32B32_FLOAT,0,28,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+    {"UV",0,DXGI_FORMAT_R32G32_FLOAT,0,40,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0}
     };
 
 

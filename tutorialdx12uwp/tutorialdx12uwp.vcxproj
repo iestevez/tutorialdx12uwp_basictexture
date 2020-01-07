@@ -344,6 +344,7 @@
     <None Include="tutorialdx12uwp_TemporaryKey.pfx" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="Assets\greendragon.dds" />
     <Image Include="Assets\Logo.scale-200.png" />
     <Image Include="Assets\SmallLogo.scale-200.png" />
     <Image Include="Assets\SplashScreen.scale-200.png" />
