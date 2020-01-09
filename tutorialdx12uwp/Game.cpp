@@ -802,7 +802,7 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
     D3D12_CONSTANT_BUFFER_VIEW_DESC cDescriptor;
     cDescriptor.BufferLocation = cAddress;
     cDescriptor.SizeInBytes = CalcConstantBufferByteSize(sizeof(vConstants));
-    m_cDescriptorSize = sizeof(cDescriptor);
+    m_cDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     // Creamos el descriptor y lo colocamos al principio del heap de descriptores.
     m_d3dDevice->CreateConstantBufferView(&cDescriptor, m_cDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
@@ -811,7 +811,7 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
         m_cDescriptorHeap->GetCPUDescriptorHandleForHeapStart()
     );
-    hDescriptor.Offset(0, m_cDescriptorSize);
+    hDescriptor.Offset(1, m_cDescriptorSize);
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc.Format = m_mesh.meshTexture->Resource->GetDesc().Format;
