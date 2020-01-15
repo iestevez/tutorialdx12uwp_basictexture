@@ -97,10 +97,10 @@ void Game::Update(DX::StepTimer const& timer)
     //void* data=nullptr;
     void* data;
 
-    m_vConstantBuffer->Map(0, nullptr, reinterpret_cast<void**>(&data)); // realizamos el mapeo
+    m_vConstantBuffer[m_backBufferIndex]->Map(0, nullptr, reinterpret_cast<void**>(&data)); // realizamos el mapeo
     memcpy(data, reinterpret_cast<const void*>(&m_vConstants), sizeof(vConstants)); //Copia de la transformación
-    if (m_vConstantBuffer != nullptr)
-        m_vConstantBuffer->Unmap(0, nullptr);
+    if (m_vConstantBuffer[m_backBufferIndex] != nullptr)
+        m_vConstantBuffer[m_backBufferIndex]->Unmap(0, nullptr);
 
 
 
@@ -121,7 +121,7 @@ void Game::Render()
 
     // TODO: Add your rendering code here.
 
-    unsigned long nindices = m_mesh.GetISize();
+  
     m_commandList->DrawIndexedInstanced(m_mesh.indices.size(), 1, 0, 0, 0);
 
 
@@ -173,12 +173,14 @@ void Game::Clear()
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE cHandle(m_cDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
     //cHandle.Offset(0, m_cDescriptorSize);
+    cHandle.Offset(m_backBufferIndex, m_cDescriptorSize);
 
     m_commandList->SetGraphicsRootDescriptorTable(0, // número de root parameter
         cHandle); //manejador a la posición del heap donde comenzaría el rango de descriptores
-    cHandle.Offset(1, m_cDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srvHandle(m_cDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+    srvHandle.Offset(c_swapBufferCount, m_cDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(1, // para SRV
-        cHandle);
+        srvHandle);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE sHandle(m_sDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
     m_commandList->SetGraphicsRootDescriptorTable(2, // número de root parameter
@@ -767,20 +769,22 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
     /* Tarea 1: Crear el buffer en un heap upload*/
     unsigned int elementSize = CalcConstantBufferByteSize(sizeof(m_vConstants));
 
-    m_d3dDevice->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Buffer(elementSize),
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_vConstantBuffer)
-    );
+    for (int i = 0; i < c_swapBufferCount; i++) {
+        m_d3dDevice->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer(elementSize),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(m_vConstantBuffer[i].GetAddressOf())
+        );
+    }
 
     /* Tarea 2: crear un heap de descriptores CBV_SRV_UAV*/
 
     // El heap de descriptores para los buffers de constantes
     D3D12_DESCRIPTOR_HEAP_DESC cHeapDescriptor;
-    cHeapDescriptor.NumDescriptors = 2;
+    cHeapDescriptor.NumDescriptors = c_swapBufferCount+1;
     cHeapDescriptor.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     cHeapDescriptor.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     cHeapDescriptor.NodeMask = 0;
@@ -798,26 +802,31 @@ void Game::CreateMainInputFlowResources(const Mesh& mesh) {
 
     /* Tarea 4: crear un descriptor para el buffer de constantes*/
     // Ahora el descriptor de la vista buffer de constantes
-    D3D12_GPU_VIRTUAL_ADDRESS cAddress = m_vConstantBuffer->GetGPUVirtualAddress();
-    D3D12_CONSTANT_BUFFER_VIEW_DESC cDescriptor;
-    cDescriptor.BufferLocation = cAddress;
-    cDescriptor.SizeInBytes = CalcConstantBufferByteSize(sizeof(vConstants));
-    m_cDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    // Creamos el descriptor y lo colocamos al principio del heap de descriptores.
-    m_d3dDevice->CreateConstantBufferView(&cDescriptor, m_cDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-
-    /* Tarea 5 Creamos un descriptor SRV para la textura*/
-    // Obtenemos un handle para el descriptor.
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(
         m_cDescriptorHeap->GetCPUDescriptorHandleForHeapStart()
     );
-    hDescriptor.Offset(1, m_cDescriptorSize);
+    m_cDescriptorSize = m_d3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for (int i = 0; i < c_swapBufferCount; i++) {
+        D3D12_GPU_VIRTUAL_ADDRESS cAddress = m_vConstantBuffer[i]->GetGPUVirtualAddress();
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cDescriptor;
+        cDescriptor.BufferLocation = cAddress;
+        cDescriptor.SizeInBytes = CalcConstantBufferByteSize(sizeof(vConstants));
+        
+        // Creamos el descriptor y lo colocamos al principio del heap de descriptores.
+        m_d3dDevice->CreateConstantBufferView(&cDescriptor, hDescriptor);
+        hDescriptor.Offset(1, m_cDescriptorSize);
+    }
+    /* Tarea 5 Creamos un descriptor SRV para la textura*/
+    // Obtenemos un handle para el descriptor.
+    
+    
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc.Format = m_mesh.meshTexture->Resource->GetDesc().Format;
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MostDetailedMip = 0;
-    srvDesc.Texture2D.MipLevels = m_mesh.meshTexture->Resource->GetDesc().MipLevels;
+    //srvDesc.Texture2D.MipLevels = m_mesh.meshTexture->Resource->GetDesc().MipLevels;
+    srvDesc.Texture2D.MipLevels = -1;
     srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
     m_d3dDevice->CreateShaderResourceView(m_mesh.meshTexture->Resource.Get(), &srvDesc, hDescriptor);
 

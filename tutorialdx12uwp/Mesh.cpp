@@ -2,7 +2,7 @@
 #include "Mesh.h"
 
 
-Mesh::Mesh() : defaultColor (XMFLOAT4(Colors::Coral))
+Mesh::Mesh() : defaultColor (XMFLOAT4(Colors::White))
 {
 	vertices = {
 		{XMFLOAT3(-1.0f,-1.0f,-1.0f),XMFLOAT4(Colors::Red)},
